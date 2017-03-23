@@ -3,11 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"log"
 	"net"
 	"os"
-	"os/user"
-	"path"
+	"strings"
 	"time"
 )
 
@@ -15,13 +14,6 @@ var addr = flag.String("addr", ":1818", "learn to address:port")
 
 func main() {
 	flag.Parse()
-
-	usr, err := user.Current()
-	if err != nil {
-		fmt.Println("Error on getting current user:", err)
-	}
-
-	replyFilePath := path.Join(usr.HomeDir, "reply.data")
 
 	listener, err := net.Listen("tcp", *addr)
 	if err != nil {
@@ -31,11 +23,6 @@ func main() {
 
 	defer listener.Close()
 
-	if err != nil {
-		fmt.Println("Error on getting hostname:", err)
-		os.Exit(1)
-	}
-
 	fmt.Println("Listening on - ", *addr)
 	for {
 		conn, err := listener.Accept()
@@ -44,19 +31,13 @@ func main() {
 			os.Exit(1)
 		}
 
-		replyData, err := ioutil.ReadFile(replyFilePath)
-
-		if err != nil {
-			fmt.Println("cannot read reply from:", replyFilePath)
-		}
-
 		// Handle connections in a new goroutine.
-		go handleRequest(conn, string(replyData))
+		go handleRequest(conn)
 	}
 }
 
 // Handles incoming requests.
-func handleRequest(conn net.Conn, reply string) {
+func handleRequest(conn net.Conn) {
 	fmt.Println(
 		time.Now().UTC().Format("2006-01-02 15:04:05"),
 		": Hanlding connection from - ",
@@ -66,13 +47,35 @@ func handleRequest(conn net.Conn, reply string) {
 	buf := make([]byte, 1024)
 	// Read the incoming connection into the buffer.
 	reqLen, err := conn.Read(buf)
+	var ipAddress string
 	if err != nil {
 		fmt.Println("Error reading:", err.Error())
 	} else {
-		fmt.Println("get request:", string(buf[:reqLen]))
+		ipAddress = strings.TrimSpace(string(buf[:reqLen]))
+		fmt.Println("get request:", ipAddress)
 	}
+
+	reply := checkIPExist(ipAddress)
 
 	conn.Write([]byte(reply))
 	fmt.Println("send reply:", reply)
 	conn.Close()
+}
+
+func checkIPExist(ip string) string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, address := range addrs {
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			ipString := ipnet.IP.To4().String()
+			if ip == ipString {
+				return "1"
+			}
+		}
+	}
+
+	return "0"
 }
